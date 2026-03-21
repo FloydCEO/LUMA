@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8"/>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  html, body {
+    width: 600px; height: 400px;
+    background: transparent;
+    overflow: hidden;
+    -webkit-app-region: drag;
+    cursor: default;
+  }
+
+  #wrap {
+    width: 100%; height: 100%;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 20px;
+  }
+
+  #logo {
+    width: 480px;
+    max-width: 90%;
+    opacity: 0;
+    animation: appear 0.8s cubic-bezier(.2,0,.3,1) 0.2s forwards;
+    filter: drop-shadow(0 0 0px rgba(255,176,0,0));
+  }
+
+  @keyframes appear {
+    0%   { opacity: 0; transform: scale(0.88); filter: drop-shadow(0 0 60px rgba(255,255,255,0.9)) brightness(3); }
+    30%  { opacity: 1; filter: drop-shadow(0 0 30px rgba(255,176,0,0.8)) brightness(1.6); }
+    100% { opacity: 1; transform: scale(1);    filter: drop-shadow(0 0 20px rgba(255,176,0,0.4)) brightness(1); }
+  }
+
+  /* shine sweep */
+  #logo-wrap {
+    position: relative;
+    display: inline-block;
+  }
+  #logo-wrap::after {
+    content: '';
+    position: absolute;
+    top: -20%; left: -60%;
+    width: 40%; height: 140%;
+    background: linear-gradient(
+      105deg,
+      transparent 30%,
+      rgba(255,255,255,0.25) 50%,
+      transparent 70%
+    );
+    transform: skewX(-15deg);
+    animation: shine 1.2s ease 0.9s forwards;
+    opacity: 0;
+    pointer-events: none;
+  }
+  @keyframes shine {
+    0%   { left: -60%; opacity: 1; }
+    100% { left: 130%; opacity: 1; }
+  }
+
+  #sub {
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    color: rgba(255,176,0,0.5);
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    opacity: 0;
+    animation: fadeIn 0.5s ease 1.4s forwards;
+  }
+
+  @keyframes fadeIn { to { opacity: 1; } }
+
+  /* pulse glow after appear */
+  #logo-wrap {
+    animation: glowPulse 2s ease-in-out 1.5s infinite;
+  }
+  @keyframes glowPulse {
+    0%,100% { filter: drop-shadow(0 0 16px rgba(255,176,0,0.3)); }
+    50%     { filter: drop-shadow(0 0 36px rgba(255,176,0,0.6)); }
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="logo-wrap">
+    <img id="logo" src="Luma.png" alt="LUMA"
+      onerror="this.style.display='none'; document.getElementById('logo-fallback').style.display='block'"/>
+    <div id="logo-fallback" style="display:none; font-family:monospace; font-size:80px; font-weight:900; color:#ffb000; letter-spacing:20px; opacity:0; animation:appear 0.8s forwards 0.2s">LUMA</div>
+  </div>
+  <div id="sub">Lyko's Universal Media Adapter</div>
+</div>
+
+<script>
+// Click or keypress to skip
+document.addEventListener('click', dismiss);
+document.addEventListener('keydown', dismiss);
+
+// Auto-dismiss after 3.4s
+setTimeout(dismiss, 3400);
+
+var dismissed = false;
+function dismiss() {
+  if (dismissed) return;
+  dismissed = true;
+  document.body.style.transition = 'opacity 0.4s ease';
+  document.body.style.opacity = '0';
+  setTimeout(function() {
+    if (window.electronAPI) window.electronAPI.splashDone();
+  }, 380);
+}
+</script>
+</body>
+</html>

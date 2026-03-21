@@ -5,6 +5,7 @@ title LUMA Installer
 set "LUMA_DIR=%~dp0"
 set "ERRORS=0"
 set "FFMPEG_MANUAL=0"
+set "NODE_MANUAL=0"
 
 call :print_logo
 call :check_admin
@@ -14,7 +15,7 @@ echo   ============================================================
 echo     STARTING DEPENDENCY INSTALLATION
 echo   ============================================================
 echo.
-echo   LUMA needs 3 things:  Python  pip packages  ffmpeg
+echo   LUMA needs:  Python  pip packages  ffmpeg  Node.js  Electron
 echo.
 echo   ------------------------------------------------------------
 echo.
@@ -24,6 +25,8 @@ call :step_pip
 call :step_colorama
 call :step_requests
 call :step_ffmpeg
+call :step_nodejs
+call :step_electron
 
 echo.
 echo   ------------------------------------------------------------
@@ -34,16 +37,17 @@ exit /b 0
 
 :print_logo
 cls
-echo.
-echo    ============================================
-echo    ##                                        ##
-echo    ##        L   U   M   A                   ##
-echo    ##                                        ##
-echo    ##    Lyko's Universal Media Adapter      ##
-echo    ##           Installer  v2.0              ##
-echo    ##                                        ##
-echo    ============================================
-echo.
+chcp 65001 >nul 2>&1
+color 06
+python "%LUMA_DIR%src\luma_logo.py" 2>nul
+if errorlevel 1 (
+    echo.
+    echo    ============================================
+    echo      L  U  M  A  --  Lyko's Universal Media Adapter
+    echo      Installer v3.0
+    echo    ============================================
+    echo.
+)
 goto :eof
 
 
@@ -67,7 +71,7 @@ goto :eof
 :step_banner
 echo.
 echo   +----------------------------------------------------------+
-echo   ^|  STEP %~1 / 5  --  %~2
+echo   ^|  STEP %~1 / 7  --  %~2
 echo   +----------------------------------------------------------+
 echo.
 goto :eof
@@ -265,6 +269,98 @@ echo.
 goto :eof
 
 
+:step_nodejs
+call :step_banner "6" "Node.js  (required for GUI)"
+node --version >nul 2>&1
+if not errorlevel 1 (
+    for /f "tokens=*" %%v in ('node --version 2^>^&1') do set NODEVER=%%v
+    call :ok "Already installed  (!NODEVER!)"
+    goto :eof
+)
+call :warn "Node.js not found -- trying auto-install..."
+echo.
+
+echo   [ 1/2 ]  Trying winget...
+winget --version >nul 2>&1
+if errorlevel 1 (
+    call :info "winget not available -- skipping"
+    goto :node_choco
+)
+winget install --id OpenJS.NodeJS.LTS -e --silent --accept-source-agreements --accept-package-agreements
+timeout /t 3 /nobreak >nul
+for /f "skip=2 tokens=2*" %%a in ('reg query "HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" /v Path 2^>nul') do set "SYS_PATH=%%b"
+for /f "skip=2 tokens=2*" %%a in ('reg query "HKCU\Environment" /v Path 2^>nul') do set "USR_PATH=%%b"
+set "PATH=!SYS_PATH!;!USR_PATH!;%LUMA_DIR%"
+node --version >nul 2>&1
+if not errorlevel 1 (
+    call :ok "Node.js installed via winget!"
+    goto :eof
+)
+call :warn "winget ran but Node not in PATH yet -- may need a restart"
+echo.
+
+:node_choco
+echo   [ 2/2 ]  Trying Chocolatey...
+where choco >nul 2>&1
+if errorlevel 1 (
+    call :info "Chocolatey not installed -- skipping"
+    goto :node_manual
+)
+choco install nodejs-lts -y --no-progress
+node --version >nul 2>&1
+if not errorlevel 1 (
+    call :ok "Node.js installed via Chocolatey!"
+    goto :eof
+)
+call :warn "Chocolatey method failed"
+
+:node_manual
+set NODE_MANUAL=1
+set /a ERRORS+=1
+echo.
+echo   Could not auto-install Node.js.
+echo   To fix this manually:
+echo.
+echo     1. Go to https://nodejs.org
+echo     2. Download the LTS installer and run it
+echo     3. Re-run this installer after.
+echo.
+echo   The terminal version of LUMA (luma.py) still works without Node.
+echo.
+goto :eof
+
+
+:step_electron
+call :step_banner "7" "Electron  (GUI framework)"
+node --version >nul 2>&1
+if errorlevel 1 (
+    call :warn "Skipping Electron -- Node.js not available"
+    goto :eof
+)
+
+if exist "%LUMA_DIR%node_modules\electron" (
+    call :ok "Electron already installed"
+    goto :eof
+)
+
+if not exist "%LUMA_DIR%package.json" (
+    call :warn "package.json not found in LUMA folder -- skipping Electron"
+    call :info "Make sure package.json is in the same folder as this installer"
+    goto :eof
+)
+
+call :info "Installing Electron (this may take a minute)..."
+cd /d "%LUMA_DIR%"
+npm install --save-dev electron --quiet 2>nul
+if errorlevel 1 (
+    call :fail "Electron install failed -- try running:  npm install --save-dev electron"
+    call :info "Run from the LUMA folder in a terminal window"
+) else (
+    call :ok "Electron installed successfully"
+)
+goto :eof
+
+
 :finish
 echo.
 if !ERRORS! EQU 0 (
@@ -275,9 +371,11 @@ if !ERRORS! EQU 0 (
     echo   ^|                                                            ^|
     echo   +============================================================+
     echo.
-    echo   Launching LUMA in 3 seconds...
+    call :make_shortcut
+    echo   Launching LUMA GUI in 3 seconds...
     timeout /t 3 /nobreak >nul
-    python "%LUMA_DIR%luma.py"
+    cd /d "%LUMA_DIR%"
+    npx electron .
 ) else (
     color 0E
     echo   +============================================================+
@@ -287,13 +385,35 @@ if !ERRORS! EQU 0 (
     echo   +============================================================+
     echo.
     if !FFMPEG_MANUAL! EQU 1 (
-        echo   ffmpeg must be installed manually.
-        echo   See instructions above, then run run_luma.bat to launch.
-    ) else (
-        echo   Review warnings above and re-run if needed.
-        echo   Most warnings are non-critical -- try run_luma.bat anyway.
+        echo   ffmpeg must be installed manually -- see instructions above.
+    )
+    if !NODE_MANUAL! EQU 1 (
+        echo   Node.js must be installed manually -- see instructions above.
+        echo   Without it the GUI won't run, but luma.py still works.
     )
     echo.
+    echo   Once fixed, run LUMA GUI.bat for the GUI
+    echo   or run_luma.bat for the terminal version.
+    echo.
     pause
+)
+goto :eof
+
+
+:make_shortcut
+call :info "Creating desktop shortcut..."
+set "SC_TARGET=cmd.exe"
+set "SC_ARGS=/c \"%LUMA_DIR%LUMA GUI.bat\""
+set "SC_ICON=%LUMA_DIR%src\favicon.ico"
+set "SC_DEST=%USERPROFILE%\Desktop\LUMA.lnk"
+powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $sc = $ws.CreateShortcut($env:SC_DEST); $sc.TargetPath = 'cmd.exe'; $sc.Arguments = '/c \"' + $env:LUMA_DIR + 'LUMA GUI.bat\"'; $sc.WorkingDirectory = $env:LUMA_DIR; $sc.Description = 'LUMA - Lyko''s Universal Media Adapter'; $sc.WindowStyle = 7; if (Test-Path $env:SC_ICON) { $sc.IconLocation = $env:SC_ICON }; $sc.Save()" >nul 2>&1
+if exist "%SC_DEST%" (
+    call :ok "Desktop shortcut created"
+) else (
+    call :warn "Could not create shortcut -- you can make one manually"
+)
+goto :eof
+) else (
+    call :warn "Could not create shortcut -- you can make one manually"
 )
 goto :eof

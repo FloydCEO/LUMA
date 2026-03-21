@@ -1,0 +1,29 @@
+{
+  "name": "luma",
+  "version": "1.0.1",
+  "description": "Lyko's Universal Media Adapter",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "build": {
+    "appId": "com.lyko.luma",
+    "productName": "LUMA",
+    "icon": "Luma.png",
+    "win": {
+      "target": "nsis",
+      "icon": "Luma.png"
+    },
+    "files": [
+      "main.js",
+      "package.json",
+      "src/**"
+    ]
+  }
+}

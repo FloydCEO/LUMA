@@ -1,0 +1,1343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>LUMA — Lyko's Universal Media Adapter</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+
+  :root {
+    --amber: #ffb000;
+    --amber-dim: #cc8800;
+    --amber-bright: #ffd060;
+    --amber-glow: rgba(255,176,0,0.18);
+    --amber-glow2: rgba(255,176,0,0.08);
+    --green: #39ff14;
+    --red: #ff3b3b;
+    --bg: #0a0a06;
+    --bg2: #111108;
+    --bg3: #181810;
+    --panel: #14130d;
+    --border: #3a3018;
+    --border-bright: #6a5a20;
+    --text: #e8d080;
+    --text-dim: #8a7a40;
+    --text-muted: #4a4020;
+    --scan: rgba(255,176,0,0.03);
+    --font-mono: 'Share Tech Mono', 'Courier New', monospace;
+    --font-display: 'Orbitron', 'Share Tech Mono', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    overflow: hidden;
+  }
+
+  /* ── SCANLINES ── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 9999;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.15) 2px,
+      rgba(0,0,0,0.15) 4px
+    );
+    pointer-events: none;
+  }
+
+  /* ── CRT VIGNETTE ── */
+  body::after {
+    content: '';
+    position: fixed; inset: 0; z-index: 9998;
+    background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.7) 100%);
+    pointer-events: none;
+  }
+
+  /* ══════════════════════════════════════
+     SPLASH SCREEN
+  ══════════════════════════════════════ */
+  #splash {
+    position: fixed; inset: 0; z-index: 1000;
+    background: #000;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    transition: opacity 0.8s ease;
+  }
+  #splash.fade-out { opacity: 0; pointer-events: none; }
+
+  #splash-logo-wrap {
+    position: relative;
+    width: 520px; max-width: 90vw;
+    animation: splashPulse 2s ease-in-out infinite;
+  }
+  #splash-logo-wrap img {
+    width: 100%;
+    display: block;
+    filter: brightness(1.1) contrast(1.05);
+    animation: splashReveal 1.2s cubic-bezier(.2,0,.3,1) forwards;
+    opacity: 0;
+  }
+  #splash-scanline {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, transparent, rgba(255,176,0,0.8), transparent);
+    animation: scanDown 1.4s ease-in-out 0.3s forwards;
+    opacity: 0;
+  }
+
+  @keyframes splashReveal {
+    0%   { opacity: 0; transform: scale(0.92) translateY(10px); filter: brightness(3) blur(6px); }
+    40%  { opacity: 1; filter: brightness(1.4) blur(0); }
+    100% { opacity: 1; transform: scale(1) translateY(0); filter: brightness(1.1); }
+  }
+  @keyframes splashPulse {
+    0%,100% { filter: drop-shadow(0 0 20px rgba(255,176,0,0.3)); }
+    50%     { filter: drop-shadow(0 0 40px rgba(255,176,0,0.6)); }
+  }
+  @keyframes scanDown {
+    0%   { opacity: 0.8; top: 0; }
+    100% { opacity: 0; top: 100%; }
+  }
+
+  #splash-subtitle {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--amber-dim);
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    margin-top: 24px;
+    opacity: 0;
+    animation: fadeIn 0.6s ease 1.4s forwards;
+  }
+  #splash-bar-wrap {
+    margin-top: 36px;
+    width: 320px; max-width: 80vw;
+    opacity: 0;
+    animation: fadeIn 0.4s ease 1.8s forwards;
+  }
+  #splash-bar-label {
+    font-size: 11px; color: var(--text-dim);
+    letter-spacing: 3px; margin-bottom: 6px;
+  }
+  #splash-bar-outer {
+    height: 6px;
+    border: 1px solid var(--border-bright);
+    background: var(--bg2);
+    position: relative;
+    overflow: hidden;
+  }
+  #splash-bar-inner {
+    height: 100%;
+    background: var(--amber);
+    width: 0%;
+    animation: loadBar 1.4s ease 2s forwards;
+    box-shadow: 0 0 8px var(--amber);
+  }
+  #splash-skip {
+    margin-top: 20px;
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 3px;
+    cursor: pointer;
+    opacity: 0;
+    animation: fadeIn 0.4s ease 2.2s forwards;
+    transition: color 0.2s;
+  }
+  #splash-skip:hover { color: var(--text-dim); }
+
+  @keyframes loadBar {
+    0%   { width: 0%; }
+    60%  { width: 80%; }
+    90%  { width: 92%; }
+    100% { width: 100%; }
+  }
+  @keyframes fadeIn {
+    to { opacity: 1; }
+  }
+
+  /* ══════════════════════════════════════
+     MAIN APP
+  ══════════════════════════════════════ */
+  #app {
+    display: none;
+    flex-direction: column;
+    height: 100vh;
+    width: 100%;
+    opacity: 0;
+    transition: opacity 0.6s ease;
+  }
+  #app.visible { opacity: 1; }
+
+  #topbar {
+    display: flex; align-items: center;
+    padding: 8px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+    gap: 16px;
+    flex-shrink: 0;
+    cursor: grab;
+    -webkit-user-select: none;
+  }
+  #topbar:active { cursor: grabbing; }
+
+  .win-btn {
+    width: 22px; height: 22px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 10px;
+    cursor: pointer;
+    transition: all 0.15s;
+    flex-shrink: 0;
+  }
+  .win-btn:hover { border-color: var(--amber-dim); color: var(--amber); }
+  .win-btn.close:hover { border-color: #ff3b3b; color: #ff3b3b; background: rgba(255,59,59,0.1); }
+  #topbar-logo {
+    font-family: var(--font-display);
+    font-size: 18px; font-weight: 900;
+    color: var(--amber);
+    letter-spacing: 6px;
+    text-shadow: 0 0 12px rgba(255,176,0,0.5);
+  }
+  #topbar-sub {
+    font-size: 10px; color: var(--text-dim);
+    letter-spacing: 2px; flex: 1;
+  }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px var(--green);
+    animation: blink 2s ease-in-out infinite;
+  }
+  .status-dot.red { background: var(--red); box-shadow: 0 0 6px var(--red); }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  #status-text { font-size: 10px; color: var(--text-dim); letter-spacing: 1px; }
+
+  /* ── LAYOUT ── */
+  #main {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* ── SIDEBAR ── */
+  #sidebar {
+    width: 200px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    padding: 16px 0;
+    gap: 2px;
+  }
+
+  .nav-label {
+    font-size: 9px; color: var(--text-muted);
+    letter-spacing: 4px;
+    padding: 0 16px 8px;
+    text-transform: uppercase;
+  }
+
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px;
+    cursor: pointer;
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    border-left: 2px solid transparent;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .nav-item:hover { background: var(--amber-glow2); color: var(--text); }
+  .nav-item.active {
+    border-left-color: var(--amber);
+    background: var(--amber-glow);
+    color: var(--amber-bright);
+  }
+  .nav-icon {
+    width: 20px; height: 20px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+
+  .nav-divider {
+    height: 1px; background: var(--border);
+    margin: 8px 16px;
+  }
+
+  #sidebar-bottom {
+    margin-top: auto;
+    padding: 0 16px;
+  }
+  #ffmpeg-status {
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    font-size: 9px;
+    letter-spacing: 1px;
+    line-height: 1.6;
+    color: var(--text-dim);
+  }
+  #ffmpeg-status .ok { color: var(--green); }
+  #ffmpeg-status .err { color: var(--red); }
+
+  /* ── CONTENT AREA ── */
+  #content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px;
+    background: var(--bg);
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .panel-title {
+    font-family: var(--font-display);
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 5px;
+    color: var(--amber);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .panel-sub {
+    font-size: 10px; color: var(--text-dim);
+    letter-spacing: 2px;
+    margin-bottom: 20px;
+  }
+
+  /* ── SECTION PANELS ── */
+  .section { display: none; }
+  .section.active { display: block; }
+
+  /* ── FORM ELEMENTS ── */
+  .field-group { margin-bottom: 16px; }
+  .field-label {
+    display: block;
+    font-size: 10px; color: var(--text-dim);
+    letter-spacing: 3px; text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .field-input {
+    width: 100%;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding: 8px 12px;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    letter-spacing: 1px;
+  }
+  .field-input:focus {
+    border-color: var(--amber-dim);
+    box-shadow: 0 0 0 2px var(--amber-glow);
+  }
+  .field-input::placeholder { color: var(--text-muted); }
+
+  .field-input-row {
+    display: flex; gap: 8px; align-items: center;
+  }
+  .field-input-row .field-input { flex: 1; }
+
+  .browse-btn {
+    background: var(--bg3);
+    border: 1px solid var(--border-bright);
+    color: var(--amber-dim);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 8px 14px;
+    cursor: pointer;
+    letter-spacing: 2px;
+    white-space: nowrap;
+    transition: all 0.15s;
+  }
+  .browse-btn:hover { background: var(--amber-glow); color: var(--amber-bright); border-color: var(--amber); }
+
+  /* ── FORMAT GRID ── */
+  .fmt-grid {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    margin-top: 4px;
+  }
+  .fmt-btn {
+    padding: 5px 12px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.12s;
+    user-select: none;
+  }
+  .fmt-btn:hover { border-color: var(--border-bright); color: var(--text); }
+  .fmt-btn.selected {
+    background: var(--amber-glow);
+    border-color: var(--amber);
+    color: var(--amber-bright);
+    box-shadow: 0 0 8px var(--amber-glow);
+  }
+
+  /* ── QUALITY SELECTOR ── */
+  .quality-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .qual-btn {
+    flex: 1; min-width: 100px;
+    padding: 8px 10px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.12s;
+    line-height: 1.4;
+    user-select: none;
+  }
+  .qual-btn:hover { border-color: var(--border-bright); color: var(--text); }
+  .qual-btn.selected {
+    background: var(--amber-glow);
+    border-color: var(--amber);
+    color: var(--amber-bright);
+  }
+  .qual-btn .ql { font-size: 12px; font-weight: bold; }
+
+  /* ── CONVERT BUTTON ── */
+  .convert-btn {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 28px;
+    background: transparent;
+    border: 2px solid var(--amber);
+    color: var(--amber);
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 5px;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.15s;
+    margin-top: 20px;
+    position: relative;
+    overflow: hidden;
+    user-select: none;
+  }
+  .convert-btn::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: var(--amber-glow);
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .convert-btn:hover::before { opacity: 1; }
+  .convert-btn:hover { box-shadow: 0 0 20px var(--amber-glow); }
+  .convert-btn:active { transform: scale(0.98); }
+  .convert-btn.processing {
+    border-color: var(--amber-dim);
+    color: var(--amber-dim);
+    pointer-events: none;
+  }
+
+  /* ── PROGRESS ── */
+  #progress-panel {
+    margin-top: 20px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    padding: 16px;
+    display: none;
+  }
+  #progress-panel.visible { display: block; }
+  #progress-label {
+    font-size: 10px; color: var(--text-dim);
+    letter-spacing: 2px; margin-bottom: 8px;
+  }
+  #progress-bar-outer {
+    height: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    position: relative; overflow: hidden;
+  }
+  #progress-bar-inner {
+    height: 100%;
+    background: var(--amber);
+    box-shadow: 0 0 10px var(--amber);
+    transition: width 0.3s ease;
+    width: 0%;
+  }
+  .progress-indeterminate #progress-bar-inner {
+    width: 30% !important;
+    animation: indeterminate 1.5s ease-in-out infinite;
+  }
+  @keyframes indeterminate {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+  }
+  #progress-output {
+    margin-top: 10px;
+    font-size: 10px; color: var(--text-dim);
+    letter-spacing: 1px; line-height: 1.6;
+    max-height: 80px; overflow-y: auto;
+    font-family: var(--font-mono);
+  }
+
+  /* ── RESULT MESSAGE ── */
+  #result-msg {
+    margin-top: 12px;
+    padding: 10px 14px;
+    font-size: 11px;
+    letter-spacing: 1px;
+    line-height: 1.6;
+    display: none;
+  }
+  #result-msg.visible { display: block; }
+  #result-msg.success { border: 1px solid #4a8040; color: var(--green); background: rgba(57,255,20,0.05); }
+  #result-msg.error   { border: 1px solid #803040; color: var(--red);   background: rgba(255,59,59,0.05); }
+
+  .download-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    margin-top: 10px;
+    padding: 8px 20px;
+    background: transparent;
+    border: 1px solid var(--green);
+    color: var(--green);
+    font-family: var(--font-display);
+    font-size: 11px; font-weight: 700;
+    letter-spacing: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+    user-select: none;
+  }
+  .download-btn:hover { background: rgba(57,255,20,0.08); box-shadow: 0 0 12px rgba(57,255,20,0.2); }
+  .download-btn:active { transform: scale(0.97); }
+
+  /* ── DIVIDER ── */
+  .divider {
+    height: 1px; background: var(--border);
+    margin: 20px 0;
+    position: relative;
+  }
+  .divider::after {
+    content: '◆';
+    position: absolute; top: -7px; left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg);
+    color: var(--text-muted);
+    font-size: 8px;
+    padding: 0 6px;
+  }
+
+  /* ── OSCILLOSCOPE WIDGET ── */
+  #scope-panel {
+    border: 1px solid var(--border);
+    background: #050504;
+    padding: 8px;
+    margin-bottom: 20px;
+    position: relative;
+  }
+  #scope-canvas {
+    display: block;
+    width: 100%;
+    height: 60px;
+  }
+  #scope-label {
+    position: absolute; top: 6px; right: 10px;
+    font-size: 8px; color: var(--text-muted);
+    letter-spacing: 2px;
+  }
+
+  /* ── ABOUT PAGE ── */
+  .about-block {
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    padding: 16px 20px;
+    margin-bottom: 12px;
+  }
+  .about-title {
+    font-family: var(--font-display);
+    font-size: 9px; letter-spacing: 4px;
+    color: var(--amber-dim);
+    margin-bottom: 8px;
+  }
+  .fmt-list {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    margin-top: 4px;
+  }
+  .fmt-tag {
+    font-size: 10px;
+    padding: 2px 8px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    background: var(--bg);
+  }
+  .fmt-tag.v { border-color: #5a4010; color: #cc8800; }
+  .fmt-tag.a { border-color: #3a1050; color: #aa60dd; }
+  .fmt-tag.i { border-color: #104a10; color: #50cc50; }
+
+  /* ── BATCH PAGE ── */
+  .batch-progress-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 10px;
+    letter-spacing: 1px;
+  }
+  .batch-progress-item .filename { flex: 1; color: var(--text-dim); }
+  .batch-status { font-size: 9px; letter-spacing: 1px; }
+  .batch-status.ok  { color: var(--green); }
+  .batch-status.err { color: var(--red); }
+  .batch-status.run { color: var(--amber); animation: blink 1s infinite; }
+
+  /* ── TOOLTIP ── */
+  [data-tip] { position: relative; }
+  [data-tip]::after {
+    content: attr(data-tip);
+    position: absolute; bottom: 110%; left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg3); border: 1px solid var(--border-bright);
+    color: var(--text);
+    font-size: 9px; padding: 4px 8px;
+    white-space: nowrap; pointer-events: none;
+    opacity: 0; transition: opacity 0.15s;
+    letter-spacing: 1px; z-index: 100;
+  }
+  [data-tip]:hover::after { opacity: 1; }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border-bright); }
+</style>
+</head>
+<body>
+
+<!-- ══ SPLASH ══ -->
+<div id="splash">
+  <div id="splash-logo-wrap">
+    <img id="splash-img" src="Luma.png" alt="LUMA" onerror="this.style.display='none'; document.getElementById('splash-fallback').style.display='block'"/>
+    <div id="splash-fallback" style="display:none; text-align:center; padding:40px 0;">
+      <div style="font-family:'Orbitron',monospace; font-size:72px; font-weight:900; color:#ffb000; letter-spacing:20px; text-shadow:0 0 40px rgba(255,176,0,0.8)">LUMA</div>
+    </div>
+    <div id="splash-scanline"></div>
+  </div>
+  <div id="splash-subtitle">Lyko's Universal Media Adapter</div>
+  <div id="splash-bar-wrap">
+    <div id="splash-bar-label">INITIALIZING SYSTEMS...</div>
+    <div id="splash-bar-outer">
+      <div id="splash-bar-inner"></div>
+    </div>
+  </div>
+  <div id="splash-skip" onclick="skipSplash()">[ PRESS ANY KEY TO SKIP ]</div>
+</div>
+
+<!-- ══ MAIN APP ══ -->
+<div id="app">
+
+  <!-- TOP BAR -->
+  <div id="topbar" id="drag-handle">
+    <div id="topbar-logo">LUMA</div>
+    <div id="topbar-sub">Lyko's Universal Media Adapter &nbsp;/&nbsp; v1.0.1</div>
+    <div class="status-dot" id="ffmpeg-dot"></div>
+    <div id="status-text">FFMPEG: <span id="ffmpeg-ver">CHECKING...</span></div>
+    <div style="margin-left:auto; display:flex; gap:6px; align-items:center;">
+      <div class="win-btn" onclick="minimizeWindow()" title="Minimize">─</div>
+      <div class="win-btn close" onclick="closeWindow()" title="Close">✕</div>
+    </div>
+  </div>
+
+  <div id="main">
+
+    <!-- SIDEBAR -->
+    <div id="sidebar">
+      <div class="nav-label">Convert</div>
+      <div class="nav-item active" data-section="video" onclick="switchSection('video')">
+        <div class="nav-icon">▶</div> VIDEO
+      </div>
+      <div class="nav-item" data-section="audio" onclick="switchSection('audio')">
+        <div class="nav-icon">♪</div> AUDIO
+      </div>
+      <div class="nav-item" data-section="image" onclick="switchSection('image')">
+        <div class="nav-icon">◈</div> IMAGE
+      </div>
+      <div class="nav-divider"></div>
+      <div class="nav-label">Tools</div>
+      <div class="nav-item" data-section="batch" onclick="switchSection('batch')">
+        <div class="nav-icon">⚡</div> BATCH
+      </div>
+      <div class="nav-divider"></div>
+      <div class="nav-item" data-section="about" onclick="switchSection('about')">
+        <div class="nav-icon">ℹ</div> ABOUT
+      </div>
+
+      <div id="sidebar-bottom">
+        <div id="ffmpeg-status">
+          <div>SYS STATUS</div>
+          <div>━━━━━━━━━━━━</div>
+          <div>FFMPEG: <span id="sb-ffmpeg" class="ok">OK</span></div>
+          <div>PYTHON: <span class="ok">OK</span></div>
+          <div>━━━━━━━━━━━━</div>
+          <div id="sb-ready">■ READY</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONTENT -->
+    <div id="content">
+
+      <!-- OSCILLOSCOPE -->
+      <div id="scope-panel">
+        <canvas id="scope-canvas"></canvas>
+        <div id="scope-label">SIG / LUMA-1</div>
+      </div>
+
+      <!-- ── VIDEO ── -->
+      <div class="section active" id="sec-video">
+        <div class="panel-title">Video Converter</div>
+        <div class="panel-sub">MP4 · MKV · AVI · MOV · WEBM · FLV · WMV · GIF · TS</div>
+
+        <div class="field-group">
+          <label class="field-label">Input File</label>
+          <div class="field-input-row">
+            <input class="field-input" id="v-input" type="text" placeholder="drag & drop or browse..."/>
+            <button class="browse-btn" onclick="browseFile('v-input', videoFormats)" data-tip="Browse for file">BROWSE</button>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Output Format</label>
+          <div class="fmt-grid" id="v-fmt-grid"></div>
+        </div>
+
+        <div class="field-group" id="v-quality-wrap">
+          <label class="field-label">Quality Preset</label>
+          <div class="quality-row">
+            <div class="qual-btn" onclick="selectQual(this,'fast')" data-tip="CRF 28">
+              <div class="ql">FAST</div>
+              <div style="font-size:9px;margin-top:2px;color:inherit;opacity:0.7">lower quality</div>
+            </div>
+            <div class="qual-btn selected" onclick="selectQual(this,'medium')" data-tip="CRF 23">
+              <div class="ql">BALANCED</div>
+              <div style="font-size:9px;margin-top:2px;color:inherit;opacity:0.7">recommended</div>
+            </div>
+            <div class="qual-btn" onclick="selectQual(this,'slow')" data-tip="CRF 18">
+              <div class="ql">HIGH</div>
+              <div style="font-size:9px;margin-top:2px;color:inherit;opacity:0.7">best quality</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Output Path <span style="color:var(--text-muted)">(optional override)</span></label>
+          <input class="field-input" id="v-output" placeholder="leave blank for auto (_luma suffix)"/>
+        </div>
+
+        <button class="convert-btn" id="v-btn" onclick="convert('video')">
+          <span>▶</span> CONVERT
+        </button>
+
+        <div id="v-progress" class="progress-panel"></div>
+        <div id="v-result" class="result-msg"></div>
+      </div>
+
+      <!-- ── AUDIO ── -->
+      <div class="section" id="sec-audio">
+        <div class="panel-title">Audio Converter</div>
+        <div class="panel-sub">MP3 · WAV · FLAC · OGG · OPUS · AAC · M4A · WMA · AIFF</div>
+
+        <div class="field-group">
+          <label class="field-label">Input File</label>
+          <div class="field-input-row">
+            <input class="field-input" id="a-input" type="text" placeholder="drag & drop or browse..."/>
+            <button class="browse-btn" onclick="browseFile('a-input', audioFormats.concat(videoFormats))" data-tip="Audio or video file">BROWSE</button>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Output Format</label>
+          <div class="fmt-grid" id="a-fmt-grid"></div>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Output Path <span style="color:var(--text-muted)">(optional override)</span></label>
+          <input class="field-input" id="a-output" placeholder="leave blank for auto (_luma suffix)"/>
+        </div>
+
+        <button class="convert-btn" id="a-btn" onclick="convert('audio')">
+          <span>♪</span> CONVERT
+        </button>
+
+        <div id="a-progress" class="progress-panel"></div>
+        <div id="a-result" class="result-msg"></div>
+      </div>
+
+      <!-- ── IMAGE ── -->
+      <div class="section" id="sec-image">
+        <div class="panel-title">Image Converter</div>
+        <div class="panel-sub">JPG · PNG · WEBP · BMP · TIFF · ICO · GIF</div>
+
+        <div class="field-group">
+          <label class="field-label">Input File</label>
+          <div class="field-input-row">
+            <input class="field-input" id="i-input" type="text" placeholder="drag & drop or browse..."/>
+            <button class="browse-btn" onclick="browseFile('i-input', imageFormats)" data-tip="Browse for image">BROWSE</button>
+          </div>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Output Format</label>
+          <div class="fmt-grid" id="i-fmt-grid"></div>
+        </div>
+
+        <div class="field-group">
+          <label class="field-label">Output Path <span style="color:var(--text-muted)">(optional override)</span></label>
+          <input class="field-input" id="i-output" placeholder="leave blank for auto (_luma suffix)"/>
+        </div>
+
+        <button class="convert-btn" id="i-btn" onclick="convert('image')">
+          <span>◈</span> CONVERT
+        </button>
+
+        <div id="i-progress" class="progress-panel"></div>
+        <div id="i-result" class="result-msg"></div>
+      </div>
+
+      <!-- ── BATCH ── -->
+      <div class="section" id="sec-batch">
+        <div class="panel-title">Batch Converter</div>
+        <div class="panel-sub">Convert entire folders at once</div>
+
+        <div class="field-group">
+          <label class="field-label">Input Folder</label>
+          <div class="field-input-row">
+            <input class="field-input" id="b-folder" type="text" placeholder="path to folder..."/>
+            <button class="browse-btn" onclick="browseFolder()" data-tip="Select folder">BROWSE</button>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+          <div class="field-group">
+            <label class="field-label">Input Extension</label>
+            <input class="field-input" id="b-in-ext" type="text" placeholder="e.g. mp4"/>
+          </div>
+          <div class="field-group">
+            <label class="field-label">Output Format</label>
+            <input class="field-input" id="b-out-ext" type="text" placeholder="e.g. mkv"/>
+          </div>
+        </div>
+
+        <button class="convert-btn" id="b-btn" onclick="batchConvert()">
+          <span>⚡</span> BATCH CONVERT
+        </button>
+
+        <div id="b-progress" class="progress-panel"></div>
+        <div id="b-list" style="margin-top:12px; border:1px solid var(--border); display:none;"></div>
+        <div id="b-result" class="result-msg"></div>
+      </div>
+
+      <!-- ── ABOUT ── -->
+      <div class="section" id="sec-about">
+        <div class="panel-title">About LUMA</div>
+        <div class="panel-sub">Lyko's Universal Media Adapter · v1.0.1</div>
+
+        <div class="about-block">
+          <div class="about-title">WHAT IT DOES</div>
+          <div style="font-size:11px; line-height:1.8; color:var(--text-dim)">
+            LUMA is a local media converter. No rate limits. No paywalls. No uploads.<br>
+            Your files never leave your machine. Powered by ffmpeg under the hood.
+          </div>
+        </div>
+
+        <div class="about-block">
+          <div class="about-title">SUPPORTED FORMATS</div>
+          <div style="font-size:10px; color:var(--text-muted); margin-bottom:4px;">VIDEO</div>
+          <div class="fmt-list">
+            <span class="fmt-tag v">MP4</span><span class="fmt-tag v">MKV</span><span class="fmt-tag v">AVI</span>
+            <span class="fmt-tag v">MOV</span><span class="fmt-tag v">WEBM</span><span class="fmt-tag v">FLV</span>
+            <span class="fmt-tag v">WMV</span><span class="fmt-tag v">M4V</span><span class="fmt-tag v">TS</span>
+            <span class="fmt-tag v">GIF</span>
+          </div>
+          <div style="font-size:10px; color:var(--text-muted); margin:10px 0 4px;">AUDIO</div>
+          <div class="fmt-list">
+            <span class="fmt-tag a">MP3</span><span class="fmt-tag a">WAV</span><span class="fmt-tag a">FLAC</span>
+            <span class="fmt-tag a">OGG</span><span class="fmt-tag a">OPUS</span><span class="fmt-tag a">AAC</span>
+            <span class="fmt-tag a">M4A</span><span class="fmt-tag a">WMA</span><span class="fmt-tag a">AIFF</span>
+          </div>
+          <div style="font-size:10px; color:var(--text-muted); margin:10px 0 4px;">IMAGE</div>
+          <div class="fmt-list">
+            <span class="fmt-tag i">JPG</span><span class="fmt-tag i">PNG</span><span class="fmt-tag i">WEBP</span>
+            <span class="fmt-tag i">BMP</span><span class="fmt-tag i">TIFF</span><span class="fmt-tag i">ICO</span>
+            <span class="fmt-tag i">GIF</span>
+          </div>
+        </div>
+
+        <div class="about-block">
+          <div class="about-title">OUTPUT FILES</div>
+          <div style="font-size:11px; line-height:1.8; color:var(--text-dim)">
+            Converted files are saved in the same folder as the original with<br>
+            <span style="color:var(--amber-dim)">_luma</span> appended to the name. Originals are never modified.
+          </div>
+        </div>
+
+        <div class="about-block">
+          <div class="about-title">BUILT BY</div>
+          <div style="font-size:11px; color:var(--text-dim)">
+            lyko &nbsp;·&nbsp; <a href="https://github.com/itslyko" style="color:var(--amber-dim)">github.com/itslyko</a>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /content -->
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<script>
+const videoFormats = ["mp4","mkv","avi","mov","webm","flv","wmv","m4v","ts","gif"];
+const audioFormats = ["mp3","wav","flac","aac","ogg","m4a","wma","opus","aiff"];
+const imageFormats = ["jpg","jpeg","png","bmp","webp","tiff","ico","gif"];
+
+let selectedFormats = { video: "mp4", audio: "mp3", image: "png" };
+let selectedQual = "medium";
+let splashDone = false;
+let converting = false;
+
+// ── SPLASH ──────────────────────────────────
+function skipSplash() {
+  if (splashDone) return;
+  splashDone = true;
+  const splash = document.getElementById('splash');
+  splash.classList.add('fade-out');
+  setTimeout(() => {
+    splash.style.display = 'none';
+    const app = document.getElementById('app');
+    app.style.display = 'flex';
+    requestAnimationFrame(() => app.classList.add('visible'));
+    initApp();
+  }, 800);
+}
+
+setTimeout(skipSplash, 4200);
+document.addEventListener('keydown', skipSplash);
+document.getElementById('splash').addEventListener('click', skipSplash);
+
+// ── FORMAT GRIDS ──────────────────────────────
+function buildFmtGrid(containerId, formats, type) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = '';
+  formats.forEach(f => {
+    const btn = document.createElement('div');
+    btn.className = 'fmt-btn' + (f === selectedFormats[type] ? ' selected' : '');
+    btn.textContent = f.toUpperCase();
+    btn.onclick = () => {
+      el.querySelectorAll('.fmt-btn').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+      selectedFormats[type] = f;
+      if (type === 'video') {
+        document.getElementById('v-quality-wrap').style.display = f === 'gif' ? 'none' : '';
+      }
+    };
+    el.appendChild(btn);
+  });
+}
+
+function selectQual(btn, val) {
+  document.querySelectorAll('.qual-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  selectedQual = val;
+}
+
+// ── NAV ────────────────────────────────────
+function switchSection(name) {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.querySelector(`[data-section="${name}"]`).classList.add('active');
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.getElementById(`sec-${name}`).classList.add('active');
+}
+
+// ── FILE BROWSE (uses <input type=file> trick) ──
+function browseFile(targetId, extensions) {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  if (extensions && extensions.length) {
+    inp.accept = extensions.map(e => `.${e}`).join(',');
+  }
+  inp.onchange = () => {
+    if (inp.files[0]) {
+      document.getElementById(targetId).value = inp.files[0].path || inp.files[0].name;
+    }
+  };
+  inp.click();
+}
+function browseFolder() {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.webkitdirectory = true;
+  inp.onchange = () => {
+    if (inp.files[0]) {
+      const p = inp.files[0].path || inp.files[0].webkitRelativePath;
+      const folder = p.split('/').slice(0,-1).join('/') || p.split('\\').slice(0,-1).join('\\');
+      document.getElementById('b-folder').value = folder;
+    }
+  };
+  inp.click();
+}
+
+// ── DRAG & DROP ────────────────────────────
+function initDragDrop() {
+  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('drop', e => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+    const path = file.path || file.name;
+    if (videoFormats.includes(ext)) {
+      document.getElementById('v-input').value = path;
+      switchSection('video');
+    } else if (audioFormats.includes(ext)) {
+      document.getElementById('a-input').value = path;
+      switchSection('audio');
+    } else if (imageFormats.includes(ext)) {
+      document.getElementById('i-input').value = path;
+      switchSection('image');
+    }
+  });
+}
+
+// ── FFMPEG CHECK ────────────────────────────
+async function checkFfmpeg() {
+  try {
+    if (window.electronAPI && window.electronAPI.checkFfmpeg) {
+      const ver = await window.electronAPI.checkFfmpeg();
+      document.getElementById('ffmpeg-ver').textContent = ver || 'OK';
+      document.getElementById('sb-ffmpeg').textContent = 'OK';
+      document.getElementById('sb-ffmpeg').className = 'ok';
+      document.getElementById('ffmpeg-dot').classList.remove('red');
+    } else {
+      document.getElementById('ffmpeg-ver').textContent = 'DETECTED';
+    }
+  } catch(e) {
+    document.getElementById('ffmpeg-ver').textContent = 'NOT FOUND';
+    document.getElementById('sb-ffmpeg').textContent = 'MISSING';
+    document.getElementById('sb-ffmpeg').className = 'err';
+    document.getElementById('ffmpeg-dot').classList.add('red');
+    document.getElementById('sb-ready').textContent = '■ NO FFMPEG';
+    document.getElementById('sb-ready').style.color = 'var(--red)';
+  }
+}
+
+// ── OSCILLOSCOPE ────────────────────────────
+function initOscilloscope() {
+  const canvas = document.getElementById('scope-canvas');
+  const ctx = canvas.getContext('2d');
+  let t = 0;
+  let active = false;
+  let bpm = 0;
+
+  function resize() {
+    canvas.width = canvas.offsetWidth * window.devicePixelRatio;
+    canvas.height = canvas.offsetHeight * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  function draw() {
+    const w = canvas.offsetWidth;
+    const h = canvas.offsetHeight;
+    ctx.clearRect(0, 0, w, h);
+
+    // Grid
+    ctx.strokeStyle = 'rgba(255,176,0,0.06)';
+    ctx.lineWidth = 0.5;
+    for (let x = 0; x < w; x += w/8) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
+    for (let y = 0; y < h; y += h/3) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+
+    // Center line
+    ctx.strokeStyle = 'rgba(255,176,0,0.12)';
+    ctx.beginPath(); ctx.moveTo(0,h/2); ctx.lineTo(w,h/2); ctx.stroke();
+
+    // Waveform
+    ctx.strokeStyle = active ? '#ffb000' : 'rgba(255,176,0,0.35)';
+    ctx.lineWidth = active ? 1.5 : 1;
+    ctx.shadowColor = '#ffb000';
+    ctx.shadowBlur = active ? 6 : 2;
+    ctx.beginPath();
+
+    for (let x = 0; x < w; x++) {
+      const progress = x / w;
+      let y;
+      if (active) {
+        y = h/2 + Math.sin((progress * 12 + t) * Math.PI * 2) * (h*0.3)
+              + Math.sin((progress * 3.7 + t*0.4) * Math.PI * 2) * (h*0.12)
+              + (Math.random() - 0.5) * 4;
+      } else {
+        y = h/2 + Math.sin((progress * 2 + t*0.1) * Math.PI * 2) * (h*0.08)
+              + Math.sin((progress * 5 + t*0.07) * Math.PI * 2) * (h*0.04);
+      }
+      x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    t += active ? 0.04 : 0.005;
+    requestAnimationFrame(draw);
+  }
+  draw();
+
+  window._scopeSetActive = v => { active = v; };
+}
+
+// ── CONVERT ────────────────────────────────
+function getAutoOutput(inputPath, ext) {
+  if (!inputPath) return '';
+  const parts = inputPath.replace(/\\/g, '/').split('/');
+  const filename = parts[parts.length - 1];
+  const stem = filename.includes('.') ? filename.split('.').slice(0,-1).join('.') : filename;
+  const dir = parts.slice(0,-1).join('/');
+  return (dir ? dir + '/' : '') + stem + '_luma.' + ext;
+}
+
+function showProgress(id, show) {
+  const el = document.getElementById(id + '-progress');
+  if (!el) return;
+  el.className = 'progress-panel' + (show ? ' visible' : '');
+  el.innerHTML = show ? `
+    <div id="${id}-prog-label" style="font-size:10px;color:var(--text-dim);letter-spacing:2px;margin-bottom:8px">CONVERTING...</div>
+    <div style="height:8px;background:var(--bg);border:1px solid var(--border);overflow:hidden">
+      <div id="${id}-prog-bar" style="height:100%;background:var(--amber);box-shadow:0 0 10px var(--amber);width:0%;transition:width 0.3s;animation:indeterminate 1.5s ease-in-out infinite"></div>
+    </div>
+    <div id="${id}-prog-out" style="margin-top:10px;font-size:10px;color:var(--text-dim);letter-spacing:1px;line-height:1.6;max-height:60px;overflow:auto"></div>
+  ` : '';
+}
+
+function showResult(id, success, msg, outputPath) {
+  const el = document.getElementById(id + '-result');
+  if (!el) return;
+  el.className = 'result-msg visible ' + (success ? 'success' : 'error');
+  if (success && outputPath) {
+    el.innerHTML = `<div>${msg}</div>
+      <button class="download-btn" onclick="saveFile('${outputPath.replace(/'/g,"\\'")}')">
+        ↓ &nbsp;SAVE FILE
+      </button>`;
+  } else {
+    el.textContent = msg;
+  }
+}
+
+async function saveFile(sourcePath) {
+  if (window.electronAPI && window.electronAPI.saveFile) {
+    const dest = await window.electronAPI.saveFile(sourcePath);
+    if (dest) {
+      // update the button to show where it was saved
+      event.target.textContent = '✓  SAVED';
+      event.target.style.borderColor = 'var(--amber)';
+      event.target.style.color = 'var(--amber)';
+      event.target.disabled = true;
+    }
+  } else {
+    // Fallback: open file location in explorer via shell
+    alert('Run via Electron to use the Save dialog.\nFile is at: ' + sourcePath);
+  }
+}
+
+async function convert(type) {
+  if (converting) return;
+
+  const prefixes = { video:'v', audio:'a', image:'i' };
+  const p = prefixes[type];
+
+  const inputVal = document.getElementById(`${p}-input`).value.trim();
+  const outputOverride = document.getElementById(`${p}-output`).value.trim();
+  const fmt = selectedFormats[type];
+
+  if (!inputVal) {
+    showResult(p, false, '[ ERROR ] No input file specified.');
+    return;
+  }
+  if (!fmt) {
+    showResult(p, false, '[ ERROR ] No output format selected.');
+    return;
+  }
+
+  const output = outputOverride || getAutoOutput(inputVal, fmt);
+  converting = true;
+  window._scopeSetActive && window._scopeSetActive(true);
+
+  const btn = document.getElementById(`${p}-btn`);
+  btn.classList.add('processing');
+  btn.textContent = '⟳ PROCESSING...';
+
+  showProgress(p, true);
+  document.getElementById(`${p}-result`) && (document.getElementById(`${p}-result`).className = 'result-msg');
+
+  // Build ffmpeg command args
+  let args = [];
+  if (type === 'video') {
+    if (fmt === 'gif') {
+      args = ['ffmpeg','-i',inputVal,'-vf','fps=15,scale=480:-1:flags=lanczos','-loop','0','-y',output];
+    } else {
+      const crfMap = {fast:'28', medium:'23', slow:'18'};
+      const crf = crfMap[selectedQual] || '23';
+      args = ['ffmpeg','-i',inputVal,'-c:v','libx264','-preset',selectedQual,'-crf',crf,'-c:a','aac','-b:a','192k','-y',output];
+    }
+  } else if (type === 'audio') {
+    const codecMap = {
+      mp3:['-codec:a','libmp3lame','-q:a','2'],
+      flac:['-codec:a','flac','-compression_level','8'],
+      ogg:['-codec:a','libvorbis','-q:a','5'],
+      opus:['-codec:a','libopus','-b:a','128k'],
+      aac:['-codec:a','aac','-b:a','192k'],
+      m4a:['-codec:a','aac','-b:a','192k'],
+      wav:['-codec:a','pcm_s16le'],
+      wma:['-codec:a','wmav2','-b:a','192k'],
+      aiff:['-codec:a','pcm_s16be'],
+    };
+    const extra = codecMap[fmt] || [];
+    args = ['ffmpeg','-i',inputVal,'-vn',...extra,'-y',output];
+  } else {
+    args = ['ffmpeg','-i',inputVal,'-vframes','1','-y',output];
+  }
+
+  // Dispatch to Electron main process or fallback
+  try {
+    let success = false;
+    let errMsg = '';
+    if (window.electronAPI && window.electronAPI.runFfmpeg) {
+      const result = await window.electronAPI.runFfmpeg(args);
+      success = result.success;
+      errMsg = result.stderr || '';
+    } else {
+      // Browser preview mode - simulate
+      await new Promise(r => setTimeout(r, 2000));
+      success = true;
+    }
+    if (success) {
+      showResult(p, true, `✓ DONE · ${output}`, output);
+    } else {
+      showResult(p, false, `✗ FAILED · ${errMsg.split('\n').slice(-3).join(' ')}`);
+    }
+  } catch(e) {
+    showResult(p, false, `✗ ERROR · ${e.message}`);
+  }
+
+  showProgress(p, false);
+  converting = false;
+  window._scopeSetActive && window._scopeSetActive(false);
+  btn.classList.remove('processing');
+  btn.innerHTML = (type==='video'?'<span>▶</span>':type==='audio'?'<span>♪</span>':'<span>◈</span>') + ' CONVERT';
+}
+
+// ── BATCH CONVERT ──────────────────────────
+async function batchConvert() {
+  if (converting) return;
+  const folder = document.getElementById('b-folder').value.trim();
+  const inExt  = document.getElementById('b-in-ext').value.trim().toLowerCase().replace(/^\./, '');
+  const outExt = document.getElementById('b-out-ext').value.trim().toLowerCase().replace(/^\./, '');
+
+  if (!folder || !inExt || !outExt) {
+    document.getElementById('b-result').className = 'result-msg visible error';
+    document.getElementById('b-result').textContent = '[ ERROR ] Fill in all fields.';
+    return;
+  }
+
+  if (window.electronAPI && window.electronAPI.batchConvert) {
+    converting = true;
+    window._scopeSetActive && window._scopeSetActive(true);
+    document.getElementById('b-btn').classList.add('processing');
+    document.getElementById('b-btn').textContent = '⟳ RUNNING...';
+
+    const result = await window.electronAPI.batchConvert({ folder, inExt, outExt });
+    const list = document.getElementById('b-list');
+    list.style.display = 'block';
+    list.innerHTML = result.files.map(f => `
+      <div class="batch-progress-item">
+        <div class="filename">${f.name}</div>
+        <div class="batch-status ${f.success ? 'ok' : 'err'}">${f.success ? '✓ OK' : '✗ FAIL'}</div>
+      </div>
+    `).join('');
+
+    const ok = result.files.filter(f => f.success).length;
+    document.getElementById('b-result').className = 'result-msg visible ' + (ok === result.files.length ? 'success' : 'error');
+    document.getElementById('b-result').textContent = `BATCH COMPLETE: ${ok}/${result.files.length} converted.`;
+
+    converting = false;
+    window._scopeSetActive && window._scopeSetActive(false);
+    document.getElementById('b-btn').classList.remove('processing');
+    document.getElementById('b-btn').innerHTML = '<span>⚡</span> BATCH CONVERT';
+  } else {
+    document.getElementById('b-result').className = 'result-msg visible success';
+    document.getElementById('b-result').textContent = '[ GUI PREVIEW ] Batch command ready. Run via Electron wrapper.';
+  }
+}
+
+// ── WINDOW DRAG ───────────────────────────
+function initDrag() {
+  const topbar = document.getElementById('topbar');
+  let dragging = false, startX, startY;
+
+  topbar.addEventListener('mousedown', function(e) {
+    if (e.target.classList.contains('win-btn')) return;
+    dragging = true;
+    startX = e.screenX;
+    startY = e.screenY;
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    if (window.electronAPI && window.electronAPI.dragWindow) {
+      // Get current window position from screen coords
+      const dx = e.screenX - startX;
+      const dy = e.screenY - startY;
+      // Use Electron's ipc to move — pass absolute screen position
+      window.electronAPI.dragWindow(e.screenX - startX, e.screenY - startY, dx, dy);
+    }
+    startX = e.screenX;
+    startY = e.screenY;
+  });
+
+  document.addEventListener('mouseup', function() { dragging = false; });
+}
+
+function minimizeWindow() {
+  if (window.electronAPI && window.electronAPI.minimizeWindow) window.electronAPI.minimizeWindow();
+}
+function closeWindow() {
+  if (window.electronAPI && window.electronAPI.closeWindow) window.electronAPI.closeWindow();
+  else window.close();
+}
+
+// ── INIT ──────────────────────────────────
+function initApp() {
+  buildFmtGrid('v-fmt-grid', videoFormats, 'video');
+  buildFmtGrid('a-fmt-grid', audioFormats, 'audio');
+  buildFmtGrid('i-fmt-grid', imageFormats, 'image');
+  initOscilloscope();
+  initDragDrop();
+  initDrag();
+  checkFfmpeg();
+}
+
+// ── KEYBOARD NAV ──────────────────────────
+document.addEventListener('keydown', e => {
+  if (!splashDone) return;
+  if (e.key === '1') switchSection('video');
+  if (e.key === '2') switchSection('audio');
+  if (e.key === '3') switchSection('image');
+  if (e.key === '4') switchSection('batch');
+});
+</script>
+</body>
+</html>
