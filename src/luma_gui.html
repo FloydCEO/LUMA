@@ -1338,6 +1338,108 @@ document.addEventListener('keydown', e => {
   if (e.key === '3') switchSection('image');
   if (e.key === '4') switchSection('batch');
 });
+
+// ══════════════════════════════════════════
+//  LUMA SOUND ENGINE
+// ══════════════════════════════════════════
+const _sfx = {};
+
+function _loadSound(key, filename) {
+  try {
+    if (window.electronAPI && window.electronAPI.soundURL) {
+      const url = window.electronAPI.soundURL(filename);
+      if (url) {
+        const audio = new Audio(url);
+        audio.preload = 'auto';
+        _sfx[key] = audio;
+      }
+    }
+  } catch(e) { /* sound unavailable — fail silently */ }
+}
+
+function _playSound(key) {
+  try {
+    const snd = _sfx[key];
+    if (!snd) return;
+    // Allow overlapping playback by cloning for click (can fire rapidly)
+    if (key === 'click') {
+      const clone = snd.cloneNode();
+      clone.volume = snd.volume;
+      clone.play().catch(() => {});
+    } else {
+      snd.currentTime = 0;
+      snd.play().catch(() => {});
+    }
+  } catch(e) {}
+}
+
+function initSounds() {
+  _loadSound('startup',    'Startup.wav');
+  _loadSound('conversion', 'Conversion.wav');
+  _loadSound('click',      'Click.wav');
+  _loadSound('closing',    'Closing.wav');
+
+  // Volume tuning
+  if (_sfx.startup)    _sfx.startup.volume    = 0.7;
+  if (_sfx.conversion) _sfx.conversion.volume = 0.8;
+  if (_sfx.click)      _sfx.click.volume      = 0.4;
+  if (_sfx.closing)    _sfx.closing.volume    = 0.7;
+
+  // ── Startup: play once the splash finishes and app is visible
+  _playSound('startup');
+
+  // ── Closing: main process sends IPC right before window destroy
+  if (window.electronAPI && window.electronAPI.onClosingSound) {
+    window.electronAPI.onClosingSound(() => _playSound('closing'));
+  }
+
+  // ── Click: attach to every button / nav-item / fmt-btn / qual-btn / browse-btn
+  //    Use event delegation on document so dynamically created buttons are covered
+  document.addEventListener('mousedown', (e) => {
+    const t = e.target;
+    if (
+      t.classList.contains('browse-btn')   ||
+      t.classList.contains('convert-btn')  ||
+      t.classList.contains('download-btn') ||
+      t.classList.contains('fmt-btn')      ||
+      t.classList.contains('qual-btn')     ||
+      t.classList.contains('nav-item')     ||
+      t.classList.contains('win-btn')      ||
+      t.id === 'splash-skip'
+    ) {
+      _playSound('click');
+    }
+  }, true); // capture phase so it fires even if handlers call stopPropagation
+}
+
+// ── Patch convert() to play Conversion sound on success ──────────
+const _origConvert = convert;
+convert = async function(type) {
+  // We need to intercept the result — wrap showResult temporarily
+  const _origShowResult = showResult;
+  showResult = function(id, success, msg, outputPath) {
+    if (success) _playSound('conversion');
+    _origShowResult(id, success, msg, outputPath);
+  };
+  await _origConvert(type);
+  showResult = _origShowResult;
+};
+
+// ── Patch batchConvert() to play Conversion sound on completion ──
+const _origBatch = batchConvert;
+batchConvert = async function() {
+  await _origBatch();
+  // Check if the result was a success
+  const res = document.getElementById('b-result');
+  if (res && res.classList.contains('success')) _playSound('conversion');
+};
+
+// Sounds initialise when the app becomes visible (after splash)
+const _origInitApp = initApp;
+initApp = function() {
+  _origInitApp();
+  initSounds();
+};
 </script>
 </body>
 </html>
