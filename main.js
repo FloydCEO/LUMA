@@ -42,7 +42,7 @@ function createMainWindow() {
       preload: path.join(__dirname, 'src', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      // Allow audio autoplay — no user gesture required
+      sandbox: false,
       autoplayPolicy: 'no-user-gesture-required',
     },
     icon: path.join(__dirname, 'src', 'favicon.ico'),
