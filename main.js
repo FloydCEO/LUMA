@@ -48,7 +48,6 @@ function createMainWindow() {
     icon: path.join(__dirname, 'src', 'favicon.ico'),
   });
   mainWindow.loadFile('src/luma_gui.html');
-  mainWindow.webContents.openDevTools();
   mainWindow.once('ready-to-show', () => {
     setTimeout(() => {
       if (splashWindow && !splashWindow.isDestroyed()) splashWindow.close();
