@@ -1,11 +1,4 @@
 const { contextBridge, ipcRenderer } = require('electron');
-const path = require('path');
-const fs   = require('fs');
-
-// Resolve a sound file path relative to this preload's directory (src/)
-function soundPath(name) {
-  return path.join(__dirname, name);
-}
 
 contextBridge.exposeInMainWorld('electronAPI', {
   checkFfmpeg:    () => ipcRenderer.invoke('check-ffmpeg'),
@@ -16,14 +9,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dragWindow:     (dx, dy) => ipcRenderer.send('drag-window', dx, dy),
   minimizeWindow: () => ipcRenderer.send('minimize-window'),
   closeWindow:    () => ipcRenderer.send('close-window'),
-
-  // ── SOUNDS ──────────────────────────────────────────────────────
-  // Returns a file:// URL the renderer can feed to new Audio()
-  soundURL: (name) => {
-    const p = soundPath(name);
-    return fs.existsSync(p) ? 'file://' + p.replace(/\\/g, '/') : null;
-  },
-
-  // Called by main process just before the window is destroyed
+  openFile:       (filters) => ipcRenderer.invoke('open-file', filters),
+  openFolder:     () => ipcRenderer.invoke('open-folder'),
   onClosingSound: (cb) => ipcRenderer.on('play-closing-sound', cb),
+  soundURL: (name) => {
+    const nodePath = require('path');
+    const nodeFs   = require('fs');
+    const p = nodePath.join(__dirname, name);
+    return nodeFs.existsSync(p) ? 'file:///' + p.replace(/\\/g, '/') : null;
+  },
 });

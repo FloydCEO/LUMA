@@ -967,31 +967,16 @@ function switchSection(name) {
 }
 
 // ── FILE BROWSE (uses <input type=file> trick) ──
-function browseFile(targetId, extensions) {
-  const inp = document.createElement('input');
-  inp.type = 'file';
-  if (extensions && extensions.length) {
-    inp.accept = extensions.map(e => `.${e}`).join(',');
-  }
-  inp.onchange = () => {
-    if (inp.files[0]) {
-      document.getElementById(targetId).value = inp.files[0].path || inp.files[0].name;
-    }
-  };
-  inp.click();
+async function browseFile(targetId, extensions) {
+  const filters = (extensions && extensions.length)
+    ? [{ name: 'Media Files', extensions }, { name: 'All Files', extensions: ['*'] }]
+    : [{ name: 'All Files', extensions: ['*'] }];
+  const filePath = await window.electronAPI.openFile(filters);
+  if (filePath) document.getElementById(targetId).value = filePath;
 }
-function browseFolder() {
-  const inp = document.createElement('input');
-  inp.type = 'file';
-  inp.webkitdirectory = true;
-  inp.onchange = () => {
-    if (inp.files[0]) {
-      const p = inp.files[0].path || inp.files[0].webkitRelativePath;
-      const folder = p.split('/').slice(0,-1).join('/') || p.split('\\').slice(0,-1).join('\\');
-      document.getElementById('b-folder').value = folder;
-    }
-  };
-  inp.click();
+async function browseFolder() {
+  const folderPath = await window.electronAPI.openFolder();
+  if (folderPath) document.getElementById('b-folder').value = folderPath;
 }
 
 // ── DRAG & DROP ────────────────────────────
@@ -1001,16 +986,21 @@ function initDragDrop() {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
     if (!file) return;
+    // Electron populates file.path on drag-drop with the full OS path
+    const filePath = file.path;
+    if (!filePath || filePath === file.name) {
+      console.warn('LUMA: drag-drop missing full path — use BROWSE instead');
+      return;
+    }
     const ext = file.name.split('.').pop().toLowerCase();
-    const path = file.path || file.name;
     if (videoFormats.includes(ext)) {
-      document.getElementById('v-input').value = path;
+      document.getElementById('v-input').value = filePath;
       switchSection('video');
     } else if (audioFormats.includes(ext)) {
-      document.getElementById('a-input').value = path;
+      document.getElementById('a-input').value = filePath;
       switchSection('audio');
     } else if (imageFormats.includes(ext)) {
-      document.getElementById('i-input').value = path;
+      document.getElementById('i-input').value = filePath;
       switchSection('image');
     }
   });
@@ -1147,9 +1137,6 @@ async function saveFile(sourcePath) {
       event.target.style.color = 'var(--amber)';
       event.target.disabled = true;
     }
-  } else {
-    // Fallback: open file location in explorer via shell
-    alert('Run via Electron to use the Save dialog.\nFile is at: ' + sourcePath);
   }
 }
 
@@ -1338,108 +1325,60 @@ document.addEventListener('keydown', e => {
   if (e.key === '3') switchSection('image');
   if (e.key === '4') switchSection('batch');
 });
-
-// ══════════════════════════════════════════
-//  LUMA SOUND ENGINE
-// ══════════════════════════════════════════
+// ── SOUNDS ──────────────────────────────────────────────
 const _sfx = {};
-
-function _loadSound(key, filename) {
+function _sload(key, file) {
   try {
-    if (window.electronAPI && window.electronAPI.soundURL) {
-      const url = window.electronAPI.soundURL(filename);
-      if (url) {
-        const audio = new Audio(url);
-        audio.preload = 'auto';
-        _sfx[key] = audio;
-      }
-    }
-  } catch(e) { /* sound unavailable — fail silently */ }
-}
-
-function _playSound(key) {
-  try {
-    const snd = _sfx[key];
-    if (!snd) return;
-    // Allow overlapping playback by cloning for click (can fire rapidly)
-    if (key === 'click') {
-      const clone = snd.cloneNode();
-      clone.volume = snd.volume;
-      clone.play().catch(() => {});
+    const url = window.electronAPI.soundURL(file);
+    console.log('[SFX] loading', key, '->', url);
+    if (url) {
+      const a = new Audio(url);
+      a.preload = 'auto';
+      a.addEventListener('error', e => console.error('[SFX] load error', key, e));
+      _sfx[key] = a;
     } else {
-      snd.currentTime = 0;
-      snd.play().catch(() => {});
+      console.warn('[SFX] soundURL returned null for', file);
     }
-  } catch(e) {}
+  } catch(e) { console.error('[SFX] exception in _sload', key, e); }
 }
-
+function _splay(key) {
+  try {
+    console.log('[SFX] play', key, '-> sfx exists:', !!_sfx[key]);
+    if (!_sfx[key]) return;
+    if (key === 'click') {
+      const c = _sfx[key].cloneNode();
+      c.volume = 0.4;
+      c.play().then(() => console.log('[SFX] click played ok')).catch(e => console.error('[SFX] click blocked:', e.message));
+    } else {
+      _sfx[key].currentTime = 0;
+      _sfx[key].play().then(() => console.log('[SFX]', key, 'played ok')).catch(e => console.error('[SFX]', key, 'blocked:', e.message));
+    }
+  } catch(e) { console.error('[SFX] exception in _splay', key, e); }
+}
 function initSounds() {
-  _loadSound('startup',    'Startup.wav');
-  _loadSound('conversion', 'Conversion.wav');
-  _loadSound('click',      'Click.wav');
-  _loadSound('closing',    'Closing.wav');
-
-  // Volume tuning
+  _sload('startup',    'Startup.wav');
+  _sload('conversion', 'Conversion.wav');
+  _sload('click',      'Click.wav');
+  _sload('closing',    'Closing.wav');
   if (_sfx.startup)    _sfx.startup.volume    = 0.7;
   if (_sfx.conversion) _sfx.conversion.volume = 0.8;
-  if (_sfx.click)      _sfx.click.volume      = 0.4;
   if (_sfx.closing)    _sfx.closing.volume    = 0.7;
-
-  // ── Startup: play once the splash finishes and app is visible
-  _playSound('startup');
-
-  // ── Closing: main process sends IPC right before window destroy
-  if (window.electronAPI && window.electronAPI.onClosingSound) {
-    window.electronAPI.onClosingSound(() => _playSound('closing'));
-  }
-
-  // ── Click: attach to every button / nav-item / fmt-btn / qual-btn / browse-btn
-  //    Use event delegation on document so dynamically created buttons are covered
-  document.addEventListener('mousedown', (e) => {
-    const t = e.target;
-    if (
-      t.classList.contains('browse-btn')   ||
-      t.classList.contains('convert-btn')  ||
-      t.classList.contains('download-btn') ||
-      t.classList.contains('fmt-btn')      ||
-      t.classList.contains('qual-btn')     ||
-      t.classList.contains('nav-item')     ||
-      t.classList.contains('win-btn')      ||
-      t.id === 'splash-skip'
-    ) {
-      _playSound('click');
-    }
-  }, true); // capture phase so it fires even if handlers call stopPropagation
+  _splay('startup');
+  if (window.electronAPI && window.electronAPI.onClosingSound)
+    window.electronAPI.onClosingSound(() => _splay('closing'));
+  document.addEventListener('mousedown', function(e) {
+    if (e.target.closest('.browse-btn,.convert-btn,.download-btn,.fmt-btn,.qual-btn,.nav-item,.win-btn,#splash-skip'))
+      _splay('click');
+  }, true);
 }
-
-// ── Patch convert() to play Conversion sound on success ──────────
-const _origConvert = convert;
-convert = async function(type) {
-  // We need to intercept the result — wrap showResult temporarily
-  const _origShowResult = showResult;
-  showResult = function(id, success, msg, outputPath) {
-    if (success) _playSound('conversion');
-    _origShowResult(id, success, msg, outputPath);
-  };
-  await _origConvert(type);
-  showResult = _origShowResult;
-};
-
-// ── Patch batchConvert() to play Conversion sound on completion ──
-const _origBatch = batchConvert;
-batchConvert = async function() {
-  await _origBatch();
-  // Check if the result was a success
-  const res = document.getElementById('b-result');
-  if (res && res.classList.contains('success')) _playSound('conversion');
-};
-
-// Sounds initialise when the app becomes visible (after splash)
 const _origInitApp = initApp;
-initApp = function() {
-  _origInitApp();
-  initSounds();
+initApp = function() { _origInitApp(); initSounds(); };
+const _origShowResult = showResult;
+showResult = function(id, success, msg, outputPath) {
+  if (success) _splay('conversion');
+  _origShowResult(id, success, msg, outputPath);
 };
+
 </script>
 </body>
 </html>
